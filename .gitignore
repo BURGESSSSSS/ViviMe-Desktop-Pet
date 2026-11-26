@@ -19,6 +19,7 @@ __pycache__/
 *.jar
 !/gradle/wrapper/gradle-wrapper.jar
 *.png
+!/docs/media/desktop-preview.png
 *.jpg
 *.jpeg
 *.webp

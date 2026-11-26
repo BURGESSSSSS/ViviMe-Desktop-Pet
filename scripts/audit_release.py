@@ -13,13 +13,15 @@ from zipfile import ZipFile
 
 WRAPPER = "gradle/wrapper/gradle-wrapper.jar"
 WRAPPER_SHA = "7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172"
+PREVIEW = "docs/media/desktop-preview.png"
+PREVIEW_SHA = "c1cceed04a608a8de3a833ea8efb8ea1bc2f099d46e939a647c193407dc5bfeb"
 ROOT_FILE = {
     ".gitattributes", ".gitignore", "LICENSE", "NOTICE.md", "README.md", "BUILD.md",
     "CONTRIBUTING.md", "THIRD_PARTY_LICENSES.md", "ASSET_POLICY.md", "RELEASE_CHECKLIST.md",
     "gradlew", "gradlew.bat", "settings.gradle", "build.gradle",
 }
 FIXED_PATHS = {
-    WRAPPER, ".github/workflows/check.yml", ".githooks/pre-commit", "gradle/verification-metadata.xml",
+    WRAPPER, PREVIEW, ".github/workflows/check.yml", ".githooks/pre-commit", "gradle/verification-metadata.xml",
     "gradle/wrapper/gradle-wrapper.properties", "core/build.gradle", "desktop/build.gradle",
     "core/src/test/resources/vivime-autonomy.json",
 }
@@ -75,6 +77,10 @@ def inspect_path(mode, path, data):
     if not path_is_allowed(path):
         raise ValueError("path outside reviewed source layout")
     check_text(path.encode("utf-8"))
+    if path == PREVIEW:
+        if sha256(data).hexdigest() != PREVIEW_SHA:
+            raise ValueError("desktop preview differs from the reviewed capture")
+        return
     if path == WRAPPER:
         if sha256(data).hexdigest() != WRAPPER_SHA:
             raise ValueError("wrapper SHA-256 differs from Gradle release")
@@ -164,7 +170,7 @@ def inspect_jar(data):
                         raise ValueError("restricted payload inside JAR")
 
 
-DIST_JARS = {"lib/core-0.1.0-candidate.jar", "lib/desktop-0.1.0-candidate.jar", "lib/fastjson2-2.0.60.jar"}
+DIST_JARS = {"lib/core-0.1.0-core-preview.jar", "lib/desktop-0.1.0-core-preview.jar", "lib/fastjson2-2.0.60.jar"}
 DIST_TEXT = {"bin/ViviMe-Desktop-Pet", "bin/ViviMe-Desktop-Pet.bat", "LICENSE", "NOTICE.md",
              "THIRD_PARTY_LICENSES.md", "licenses/Apache-2.0.txt", "licenses/FASTJSON2-NOTICE.txt"}
 
@@ -221,6 +227,8 @@ def audit_distribution(root):
 def self_test():
     cases = [
         (b"100644", "assets/dawn.vfx", b"VFX2"),
+        (b"100644", "docs/media/another-preview.png", b"fake PNG"),
+        (b"100644", PREVIEW, b"replacement image"),
         (b"100644", "core/src/main/java/x.java", b"UnityFS and game data"),
         (b"100644", "README.md", ("ghp_" + "a" * 36).encode()),
         (b"100644", "gradle/wrapper/gradle-wrapper.jar", b"altered wrapper"),

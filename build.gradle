@@ -2,7 +2,7 @@ subprojects {
     apply plugin: 'java'
 
     group = 'cn.harryh.vivime'
-    version = '0.1.0-candidate'
+    version = '0.1.0-core-preview'
     java { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     tasks.withType(JavaCompile).configureEach {
         options.encoding = 'UTF-8'
