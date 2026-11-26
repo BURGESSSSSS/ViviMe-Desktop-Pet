@@ -1,0 +1,497 @@
+/** Copyright (c) 2022-2026, Harry Huang
+ * At GPL-3.0 License
+ */
+package cn.harryh.arkpets.utils;
+
+import java.awt.geom.Point2D;
+
+import java.util.ArrayList;
+
+
+
+public class Plane {
+    private static final float DROPPED_Y_THRESHOLD = 10f;
+    private record Triple(float x, float y, float z) {}
+
+    public void clearBarriers() { barriers.clear(); }
+    private final ArrayList<Triple> barriers;
+    private final ArrayList<Triple> pointCharges;
+    public final ArrayList<RectArea> world;
+    private final Point2D.Float obj;
+    private final Point2D.Float position;
+    private final Point2D.Float speed;
+    private final Point2D.Float speedLimit;
+    private float gravity;
+    private float resilience;
+    private float airFrict;
+    private float staticFrict;
+    private boolean dropped = false;
+    private float droppedHeight = 0;
+    private RectArea movementArea;
+    private boolean stableImpacts, ignoreBarriers;
+    private float horizontalDrive;
+    /** Enables bounded impact response for the office controller; preserves upstream behavior otherwise. */
+    public void setStableImpacts(boolean enabled){stableImpacts=enabled;}
+    public void setIgnoreBarriers(boolean ignored){ignoreBarriers=ignored;}
+    public void setVelocity(float x,float y){speed.setLocation(Float.isFinite(x)?x:0,Float.isFinite(y)?y:0);}
+    public float getVelocityX(){return speed.x;}
+    public float getVelocityY(){return speed.y;}
+    /** Sets prescribed autonomous root speed; zero leaves throwing friction in control. */
+    public void setHorizontalDrive(float speed){horizontalDrive=Float.isFinite(speed)?speed:0;}
+
+    /** Sets an optional per-instance activity boundary; null preserves upstream physics. */
+    public void setMovementArea(RectArea area) {
+        movementArea = area;
+    }
+
+    /** Cancels residual throwing velocity when a constrained pet safely returns. */
+    public void stopMotion() {
+        speed.setLocation(0, 0);
+        dropped = false;
+        droppedHeight = 0;
+    }
+
+    /** Initializes a plane with gravity field.
+     */
+    public Plane() {
+        barriers        = new ArrayList<>();
+        pointCharges    = new ArrayList<>();
+        world           = new ArrayList<>();
+        obj             = new Point2D.Float(0, 0);
+        position        = new Point2D.Float(0, 0);
+        speed           = new Point2D.Float(0, 0);
+        speedLimit      = new Point2D.Float(0, 0);
+        gravity         = 0;
+        resilience      = 0;
+        airFrict        = 0;
+        staticFrict     = 0;
+    }
+
+    /** Sets the gravity acceleration.
+     * @param gravity The acceleration of gravity (px/s^2).
+     */
+    public void setGravity(float gravity) {
+        this.gravity = gravity;
+    }
+
+    /** Sets the bounce coefficient.
+     * @param resilience The ratio of Ek to be reserved after the bounce.
+     */
+    public void setResilience(float resilience) {
+        this.resilience = resilience > 1 ? 1 : (resilience < 0 ? 0 : resilience);
+    }
+
+    /** Sets the friction params.
+     * @param airFrict The acceleration of air friction (px/s^2).
+     * @param staticFrict The acceleration of static friction provided by the ground (px/s^2).
+     */
+    public void setFrict(float airFrict, float staticFrict) {
+        this.airFrict    = Math.max(0, airFrict);
+        this.staticFrict = Math.max(0, staticFrict);
+    }
+
+    /** Sets the size of the object.
+     * @param objWidth The width of the object (px).
+     * @param objHeight The height of the object (px).
+     */
+    public void setObjSize(float objWidth, float objHeight) {
+        obj.setLocation(objWidth, objHeight);
+    }
+
+    /** Sets the limitation of speed, 0=unlimited.
+     * @param x Max speed in x-axis (px/s).
+     * @param y Max speed in y-axis (px/s).
+     */
+    public void setSpeedLimit(float x, float y) {
+        speedLimit.setLocation(Math.max(0, x), Math.max(0, y));
+    }
+
+    /** Changes the position of the object forcibly,
+     * which will cause velocity change.
+     * @param deltaTime Delta time (s), set to 0 to avoid changing the velocity.
+     * @param x New x-position (px).
+     * @param y New y-position (px).
+     */
+    public void changePosition(float deltaTime, float x, float y) {
+        if (deltaTime > 0)
+            speed.setLocation((x - position.x) / deltaTime, (y - position.y) / deltaTime);
+        position.setLocation(x, y);
+        position.setLocation(limitX(x), limitY(y));
+    }
+
+    /** Updates the position of the object.
+     * @param deltaTime Delta time (s).
+     */
+    public void updatePosition(float deltaTime) {
+        if(!Float.isFinite(deltaTime)||deltaTime<=0)return;
+        if(stableImpacts){updateStablePosition(Math.min(deltaTime,.05f));return;}
+        updateVelocity(deltaTime);
+        float deltaX = speed.x * deltaTime;
+        float deltaY = speed.y * deltaTime;
+        final float bottom = borderBottom();
+        droppedHeight = Math.max(Math.signum(gravity) * (position.y - bottom), droppedHeight);
+        if (position.y != bottom && limitY(deltaY + position.y) == bottom) {
+            // When it fell to the ground.
+            if (Math.signum(gravity) * (position.y - bottom) > 0)
+                dropped = true;
+            speed.y = 0;
+        }
+        position.setLocation(limitX(deltaX + position.x), limitY(deltaY + position.y));
+    }
+
+    /** Integrates the existing forces and terrain at a caller-controlled fixed step. */
+    private void updateStablePosition(float dt){
+        updateVelocity(dt);
+        if(horizontalDrive!=0)speed.x=speedLimit.x==0?horizontalDrive:Math.max(-speedLimit.x,Math.min(horizontalDrive,speedLimit.x));
+        float nx=position.x+speed.x*dt,ny=position.y+speed.y*dt;
+        float left=borderLeft(),right=borderRight()-obj.x,top=borderTop()-obj.y,bottom=borderBottom();
+        float bounce=(float)Math.sqrt(resilience);
+        if(nx<left){nx=left;if(speed.x<0)speed.x=-speed.x*bounce;}
+        if(nx>right){nx=right;if(speed.x>0)speed.x=-speed.x*bounce;}
+        if(ny>top){ny=top;if(speed.y>0)speed.y=-speed.y*bounce;}
+        if(ny<=bottom){
+            ny=bottom;
+            if(speed.y<0){float impact=-speed.y;speed.y=impact>160?impact*bounce:0;dropped=true;}
+        }
+        if(Math.abs(speed.x)<8 && ny==bottom)speed.x=0;
+        position.setLocation(nx,ny);
+    }
+
+    /** Sets a line barrier that can support the object.
+     * @param posTop The y-position of the barrier (px).
+     * @param posLeft The x-position of the barrier's left edge (px).
+     * @param width The width of the barrier (px).
+     * @param overCover Whether to set the highest priority to this barrier.
+     */
+    public void setBarrier(float posTop, float posLeft, float width, boolean overCover) {
+        if (overCover)
+            barriers.add(0, new Triple(posLeft, posTop, width));
+        else
+            barriers.add(new Triple(posLeft, posTop, width));
+    }
+
+    /** Sets a point charge whose excited electric field can repulse the object.
+     * The position and quantity of the charge are fixed.
+     * @param posTop The y-position of the charge (px).
+     * @param posLeft The x-position of the charge (px).
+     * @param quantityProduct The product of the point's quantity and the object's quantity (C^2).
+     */
+    public void setPointCharge(float posTop, float posLeft, float quantityProduct) {
+        pointCharges.add(new Triple(posLeft, posTop, quantityProduct));
+    }
+
+    /** Gets the x-position of the object.
+     * @return X (px).
+     */
+    public float getX() {
+        return position.x;
+    }
+
+    /** Gets the y-position of the object.
+     * @return Y (px).
+     */
+    public float getY() {
+        return position.y;
+    }
+
+    /** Gets the dropped-status of the object.
+     * @return true=dropped once.
+     */
+    public boolean getDropped() {
+        if (dropped) {
+            dropped = false; // Reset
+            if (droppedHeight >= DROPPED_Y_THRESHOLD) {
+                droppedHeight = 0; // Reset
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Gets the dropping-status of the object.
+     * @return true=dropping.
+     */
+    public boolean getDropping() {
+        return Math.abs(position.y - borderBottom()) > DROPPED_Y_THRESHOLD;
+    }
+
+    /** Gets the debug message.
+     * @return Debug message string.
+     */
+    public String getDebugMsg() {
+        // Primary debug messages:
+        String msg = this.toString();
+        msg += "\nPosition:\t" + Math.round(position.x) + "\t" + Math.round(position.y) + (getDropping() ? "\t(dropping)" : "");
+        msg += "\nVelocity:\t" + Math.round(speed.x) + "\t" + Math.round(speed.y);
+        msg += "\nBorders:\t^" + Math.round(borderTop()) + "\t>" + Math.round(borderRight()) + "\tv" + Math.round(borderBottom()) + "\t<" + Math.round(borderLeft());
+        msg += "\nAreas:\t" + world.size();
+        // Additional debug messages:
+        StringBuilder msgBuilder1 = new StringBuilder(msg);
+        for (RectArea i : world)
+            msgBuilder1.append("\n- ").append(i.toString());
+        msg = msgBuilder1.toString();
+        msg += "\nBarriers:\t" + barriers.size();
+        StringBuilder msgBuilder2 = new StringBuilder(msg);
+        for (Triple i : barriers)
+            msgBuilder2.append("\n- Y = ").append(i.y).append(", X range = (").append(i.x).append(",").append(i.x + i.z).append(")");
+        msg = msgBuilder2.toString();
+        return msg;
+    }
+
+    /** Updates the velocity of the object.
+     * @param deltaTime Delta time (s).
+     */
+    private void updateVelocity(float deltaTime) {
+        final float top = borderTop();
+        final float bottom = borderBottom();
+        // Gravity
+        speed.y -= gravity * deltaTime;
+        if ((position.y == bottom && (!stableImpacts || speed.y < 0)) || (position.y + obj.y >= top && speed.y > 0))
+            speed.y = 0;
+        // Electrostatic forces
+        for (Triple pc : pointCharges) {
+            float dx = position.x + obj.x / 2f - pc.x;
+            float dy = position.y + obj.y / 2f - pc.y;
+            float hypot = (float) Math.hypot(dx, dy);
+            speed.x = applyElectrostaticEffect(speed.x, pc.z, hypot, dx / hypot, deltaTime);
+            speed.y = applyElectrostaticEffect(speed.y, pc.z, hypot, dy / hypot, deltaTime);
+        }
+        // Ground friction
+        if (position.y == bottom)
+            speed.x = applyFriction(speed.x, staticFrict, deltaTime);
+        // Air friction
+        speed.x = applyFriction(speed.x, airFrict, deltaTime);
+        speed.y = applyFriction(speed.y, airFrict, deltaTime);
+        // Limit
+        if (speedLimit.x != 0 && Math.abs(speed.x) > speedLimit.x)
+            speed.x = Math.signum(speed.x) * speedLimit.x;
+        if (speedLimit.y != 0 && Math.abs(speed.y) > speedLimit.y)
+            speed.y = Math.signum(speed.y) * speedLimit.y;
+        // Bounce
+        if (!stableImpacts && resilience != 0 && (position.x == borderLeft() || position.x == borderRight())) {
+            speed.x = (float) (Math.sqrt(speed.x * speed.x * resilience) * Math.signum(-speed.x));
+        }
+    }
+
+    /** Applies a friction to a velocity.
+     * @param speed The original velocity (px/s).
+     * @param frict The acceleration of friction (px/s^2).
+     * @param deltaTime Delta time (s).
+     * @return New velocity (px/s).
+     */
+    private float applyFriction(float speed, float frict, float deltaTime) {
+        float delta = Math.signum(speed) * frict * deltaTime;
+        float estimated = speed - delta;
+        return delta * estimated < 0 ? 0 : estimated;
+    }
+
+    /** Applies the electrostatic effect of a point charge to a velocity.
+     * @param speed The original velocity (px/s).
+     * @param quantityProduct The product of the point's quantity and the object's quantity (C^2).
+     * @param distance The absolute distance between the point charge and the object.
+     * @param cosine The cosine of the included angel between the distance and its projection on the direction of speed.
+     * @param deltaTime Delta time (s).
+     * @return New velocity (px/s).
+     */
+    private float applyElectrostaticEffect(float speed, float quantityProduct, float distance, float cosine, float deltaTime) {
+        final float k = 2000 * (float) Math.hypot(obj.x, obj.y); // Electrostatic force constant
+        final float dm = 20; // Min distance
+        distance = Math.max(Math.abs(distance), dm); // Limit the distance
+        cosine = Float.isNaN(cosine) ? 0 : Math.max(0, Math.min(1, cosine)); // Limit the cosine
+        float delta = k * quantityProduct / distance / distance * cosine * deltaTime;
+        return speed + delta;
+    }
+
+    /** Limits the x-position to avoid overstepping.
+     * @param x X (px).
+     * @return New x (px).
+     */
+    private float limitX(float x) {
+        return Math.max(borderLeft(), Math.min(x, borderRight() - obj.x));
+    }
+
+    /** Limits the y-position to avoid overstepping.
+     * @param y Y (px).
+     * @return New y (px).
+     */
+    private float limitY(float y) {
+        return Math.max(borderBottom(), Math.min(y, borderTop() - obj.y));
+    }
+
+    /** Gets the area that the object's anchor (bottom-center) currently belongs to.
+     * The anchor decides the local terrain because the vertical borders are derived from this single area.
+     * @return The active area, or null if the world is empty.
+     */
+    private RectArea getActiveArea() {
+        if (world.isEmpty())
+            return null;
+        final float anchorX = position.x + obj.x / 2f;
+        final float anchorY = position.y;
+
+        // 1. Prefer the area that geometrically contains the anchor point.
+        RectArea contained = null;
+        for (RectArea a : world)
+            if (a.isInArea(anchorX, anchorY))
+                // On overlap, prefer the area with the topmost floor (the one right beneath the feet).
+                if (contained == null || a.bottom > contained.bottom)
+                    contained = a;
+        if (contained != null)
+            return contained;
+
+        // 2. Fallback: the nearest area.
+        // This will pull the object back into a visible area on the next clamp.
+        RectArea nearestArea = world.get(0);
+        double minDist = Double.MAX_VALUE;
+        for (RectArea a : world) {
+            float cx = Math.max(a.left, Math.min(anchorX, a.right));
+            float cy = Math.max(a.bottom, Math.min(anchorY, a.top));
+            double d = Math.hypot(anchorX - cx, anchorY - cy);
+            if (d < minDist) {
+                minDist = d;
+                nearestArea = a;
+            }
+        }
+        return nearestArea;
+    }
+
+    /** Tests whether two areas are horizontally contiguous, i.e. they share a vertical
+     * edge and their vertical overlap is tall enough for the object to pass between them.
+     * @param a One area.
+     * @param b The other area.
+     * @return true=the object can walk directly from one area to the other.
+     */
+    private boolean isXContiguous(RectArea a, RectArea b) {
+        final float edgeEps = 1f;
+        boolean edgeTouch = Math.abs(a.right - b.left) <= edgeEps || Math.abs(a.left - b.right) <= edgeEps;
+        float overlap = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
+        return edgeTouch && overlap >= obj.y;
+    }
+
+    /** Computes the horizontal walkable span: the maximal run of areas reachable from the
+     * active area through contiguous edges. The object may walk across this whole run but
+     * never jump a gap to a disconnected area.
+     * @return {left, right} of the run (px), or null if the world is empty.
+     */
+    private float[] getHorizontalRun() {
+        RectArea active = getActiveArea();
+        if (active == null)
+            return null;
+        ArrayList<RectArea> run = new ArrayList<>();
+        run.add(active);
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+            for (RectArea a : world) {
+                if (run.contains(a))
+                    continue;
+                for (RectArea m : run)
+                    if (isXContiguous(m, a)) {
+                        run.add(a);
+                        changed = true;
+                        break;
+                    }
+            }
+        }
+        float left = Float.MAX_VALUE;
+        float right = -Float.MAX_VALUE;
+        for (RectArea a : run) {
+            left = Math.min(left, a.left);
+            right = Math.max(right, a.right);
+        }
+        return new float[]{left, right};
+    }
+
+    /** Gets the position of the top border, derived from the active (local) area.
+     * @return Y (px).
+     */
+    public float borderTop() {
+        if (movementArea != null) return movementArea.top;
+        RectArea active = getActiveArea();
+        return active == null ? Float.MAX_VALUE : active.top;
+    }
+
+    /** Gets the position of the bottom border, derived from the active (local) area,
+     * overridden by any supporting barrier beneath the object.
+     * @return Y (px).
+     */
+    public float borderBottom() {
+        return supportHeightAt(position.x, position.y);
+    }
+
+    /** Queries the existing terrain without moving the object or allocating a temporary body. */
+    public float supportHeightAt(float x, float feetY) {
+        final float ceiling = borderTop();
+        if(!ignoreBarriers)for (Triple i : barriers)
+            if (i.x <= x + obj.x && x <= i.x + i.z)
+                if ((stableImpacts ? feetY >= i.y - .01f : feetY + obj.y > i.y) && ceiling - obj.y > i.y)
+                    return movementArea == null ? i.y : Math.max(movementArea.bottom, i.y);
+
+        if (movementArea != null) return movementArea.bottom;
+        RectArea active = getActiveArea();
+        return active == null ? -Float.MAX_VALUE : active.bottom;
+    }
+
+    /** Gets the position of the right border, derived from the horizontal walkable run.
+     * @return X (px).
+     */
+    public float borderRight() {
+        if (movementArea != null) return movementArea.right;
+        float[] run = getHorizontalRun();
+        return run == null ? Float.MAX_VALUE : run[1];
+    }
+
+    /** Gets the position of the left border, derived from the horizontal walkable run.
+     * @return X (px).
+     */
+    public float borderLeft() {
+        if (movementArea != null) return movementArea.left;
+        float[] run = getHorizontalRun();
+        return run == null ? -Float.MAX_VALUE : run[0];
+    }
+
+    @Override
+    public String toString() {
+        return "Plane ^" + borderTop() + " >" + borderRight() + " v" + borderBottom() + " <" + borderLeft();
+    }
+
+
+    @SuppressWarnings("unused")
+    public record RectArea(float left, float right, float top, float bottom) {
+        public float getWidth() {
+            return Math.abs(left - right);
+        }
+
+        public float getHeight() {
+            return Math.abs(top - bottom);
+        }
+
+        public boolean isInArea(float x, float y) {
+            return isXInOrthographic(x) && isYInOrthographic(y);
+        }
+
+        public boolean isInArea(float x, float y, float allowanceX, float allowanceY) {
+            return isXInOrthographic(x, allowanceX) && isYInOrthographic(y, allowanceY);
+        }
+
+        public boolean isXInOrthographic(float x) {
+            return x >= left && x <= right;
+        }
+
+        public boolean isYInOrthographic(float y) {
+            return y >= bottom && y <= top;
+        }
+
+        public boolean isXInOrthographic(float x, float allowance) {
+            return x >= left - allowance && x <= right + allowance;
+        }
+
+        public boolean isYInOrthographic(float y, float allowance) {
+            return y >= bottom - allowance && y <= top + allowance;
+        }
+
+        @Override
+        public String toString() {
+            return "RectArea ^" + top + " >" + right + " v" + bottom + " <" + left;
+        }
+    }
+}

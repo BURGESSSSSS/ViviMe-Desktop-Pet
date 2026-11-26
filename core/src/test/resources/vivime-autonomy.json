@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "rest_min_seconds": 20,
+  "rest_max_seconds": 30,
+  "idle_probability": 0.35,
+  "actions": {
+    "WALK": {
+      "weight": 35,
+      "cooldown_seconds": 35
+    },
+    "SIT": {
+      "weight": 25,
+      "cooldown_seconds": 60
+    },
+    "INTERACT": {
+      "weight": 15,
+      "cooldown_seconds": 45
+    },
+    "SLEEP": {
+      "weight": 12,
+      "cooldown_seconds": 180
+    },
+    "ANGRY": {
+      "weight": 6,
+      "cooldown_seconds": 180
+    },
+    "HOP": {
+      "weight": 5,
+      "cooldown_seconds": 180
+    },
+    "SPECIAL": {
+      "weight": 2,
+      "cooldown_seconds": 900
+    }
+  }
+}

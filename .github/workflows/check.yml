@@ -1,0 +1,22 @@
+name: Review candidate
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python scripts/audit_release.py --index --objects --self-test
+      - run: .\gradlew.bat --no-daemon :core:test :desktop:build :desktop:installDist
+      - run: python scripts/audit_release.py --distribution desktop/build/install/ViviMe-Desktop-Pet
