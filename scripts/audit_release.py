@@ -24,6 +24,7 @@ FIXED_PATHS = {
     WRAPPER, PREVIEW, ".github/workflows/check.yml", ".githooks/pre-commit", "gradle/verification-metadata.xml",
     "gradle/wrapper/gradle-wrapper.properties", "core/build.gradle", "desktop/build.gradle",
     "core/src/test/resources/vivime-autonomy.json",
+    "scripts/windows-preview/Program.cs",
 }
 TEXT_ONLY = {
     "docs/": ".md", "scripts/": (".py", ".ps1"), "licenses/": ".txt",

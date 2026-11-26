@@ -24,6 +24,9 @@ jobs:
       - run: python scripts/audit_release.py --index --objects --self-test
       - run: .\gradlew.bat --no-daemon :core:test :desktop:build :desktop:installDist
       - run: python scripts/audit_release.py --distribution desktop/build/install/ViviMe-Desktop-Pet
+      - name: Compile Windows preview launcher and stage ZIP
+        shell: pwsh
+        run: .\scripts\windows-preview\Build-Preview.ps1 -OutputDirectory "$env:RUNNER_TEMP\vivime-preview"
       - name: Check generated archives
         shell: pwsh
         run: |

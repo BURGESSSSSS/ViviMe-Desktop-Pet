@@ -21,7 +21,9 @@
 
 ## Windows 快速开始
 
-准备 Windows 10 或 11 的图形桌面和 JDK 17，并让 `JAVA_HOME` 指向 JDK。Windows 实机验证见 [构建说明](BUILD.md)。第一次构建需要从 Gradle 和 Maven Central 获取构建依赖。
+使用发布页的 Windows x64 ZIP，把整个目录解压后双击 `ViviMeCorePreview.exe`。首次运行会请求下载并校验 Java 17。详细步骤见 [Windows 免安装预览](docs/WINDOWS_PREVIEW.md)。
+
+从源码运行时，准备 Windows 10 或 11 的图形桌面和 JDK 17，并让 `JAVA_HOME` 指向 JDK。第一次构建需要从 Gradle 和 Maven Central 获取构建依赖。[构建说明](BUILD.md)
 
 ```powershell
 .\gradlew.bat --no-daemon :core:test :desktop:build :desktop:installDist
